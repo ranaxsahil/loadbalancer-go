@@ -1,4 +1,4 @@
-package weightedroundrobin
+package algorithms
 
 // func pickN(w *SmoothWeightedRR, N int, t *testing.T) (string){
 // 	for i := 0; i < N; i++{
