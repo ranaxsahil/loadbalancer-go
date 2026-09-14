@@ -3,77 +3,90 @@ package algorithms
 import (
 	"errors"
 	"sync"
-	"sync/atomic"
+)
+
+var (
+	ErrEmptyInput         = errors.New("NO Servers in the List")
+	ErrNoAliveServer      = errors.New("NO Server is Alive")
+	ErrNoAvailabeServer   = errors.New("No Servers Available")
+	ErrNoServerFoundDead  = errors.New("NO Server found for Dead")
+	ErrNoServerFoundAlive = errors.New("No Server found for Alive")
 )
 
 type robinServer struct {
 	server  string
-	isAlive atomic.Bool
+	isAlive bool
 }
 
 type RoundRobin struct {
 	servers      []*robinServer
 	findServer   map[string]*robinServer
-	aliveServers atomic.Int32
+	aliveServers int
 	count        int
 	mutex        sync.Mutex
 }
 
 func NewRoundRobin() *RoundRobin {
-	return &RoundRobin{}
+	return &RoundRobin{findServer: make(map[string]*robinServer)}
 }
 
-func (r *RoundRobin) AddServers(servers []string) (string, error) {
+func (r *RoundRobin) AddServers(servers []string) error {
 	if len(servers) == 0 {
-		return "", errors.New("No input for the servers")
+		return ErrEmptyInput
 	}
 	for _, server := range servers {
-		currServer := robinServer{server: server}
-		currServer.isAlive.Store(true)
+		if _, ok := r.findServer[server]; ok {
+			continue
+		}
+		currServer := robinServer{server: server, isAlive: true}
 
 		// saving in the servers array
 		r.servers = append(r.servers, &currServer)
 
 		// saving in the map
 		r.findServer[server] = &currServer
-		r.aliveServers.Add(1)
+		r.aliveServers += 1
 	}
-	return "OK", nil
+	return nil
 }
 
 func (r *RoundRobin) GetServer() (string, error) {
 	if len(r.servers) == 0 {
-		return "", errors.New("No Server in the list and trying to get one [503]")
-	}
-	if r.aliveServers.Load() == 0 {
-		return "", errors.New("NO Alive Server")
+		return "", ErrNoAvailabeServer
 	}
 
 	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	if r.aliveServers == 0 {
+		return "", ErrNoAliveServer
+	}
 	var server string
+	start := r.count
 	for {
-		if r.servers[r.count].isAlive.Load() == true {
+		if r.servers[r.count].isAlive {
 			server = r.servers[r.count].server
 			r.count = (r.count + 1) % len(r.servers)
 			break
 		}
 		r.count = (r.count + 1) % len(r.servers)
+		if r.count == start {
+			return "", ErrNoAliveServer
+		}
 	}
-
-	// server := r.servers[r.count]
-	// r.count = (r.count + 1) % len(r.servers) // for avoiding overflows
-	r.mutex.Unlock()
 
 	return server, nil
 }
 
-func (r *RoundRobin) Reset() string {
+func (r *RoundRobin) Reset() {
+	r.mutex.Lock() // make every server alive and aliveserver count to len(robinServers) and count to zero
+	defer r.mutex.Unlock()
 
-	r.mutex.Lock()
+	for key := range r.servers {
+		r.servers[key].isAlive = true
+	}
+	r.aliveServers = len(r.servers)
 	r.count = 0
-	r.mutex.Unlock()
-
-	return "OK"
 }
 
 // TODO -- Make sure the aliveServers never go below 0 --
@@ -81,21 +94,32 @@ func (r *RoundRobin) Reset() string {
 func (r *RoundRobin) Dead(server string) error {
 	foundServer, ok := r.findServer[server]
 	if !ok {
-		return errors.New("NO Server in the list")
+		return ErrNoServerFoundDead
 	}
 
-	foundServer.isAlive.Store(false)
-	r.aliveServers.Add(-1)
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	if foundServer.isAlive { // if alive then
+		foundServer.isAlive = false
+		r.aliveServers -= 1
+	}
 	return nil
 }
 
 func (r *RoundRobin) Alive(server string) error {
 	foundServer, ok := r.findServer[server]
 	if !ok {
-		return errors.New("NO Server in the list")
+		return ErrNoServerFoundAlive
 	}
 
-	foundServer.isAlive.Store(true)
-	r.aliveServers.Add(1)
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	if !foundServer.isAlive { // if not alive then
+		foundServer.isAlive = true
+		r.aliveServers += 1
+	}
+
 	return nil
 }
