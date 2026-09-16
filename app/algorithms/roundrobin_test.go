@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 )
 
@@ -239,8 +240,8 @@ func TestUnitTests(t *testing.T) {
 			if round.count != 0 {
 				t.Fatalf("Got Count %d, Want 0", round.count)
 			}
-			if round.aliveServers != len(round.servers) {
-				t.Fatalf("Got Alive Servers %d, Want %d", round.aliveServers, len(round.servers))
+			if round.aliveCount != len(round.servers) {
+				t.Fatalf("Got Alive Servers %d, Want %d", round.aliveCount, len(round.servers))
 			}
 
 		})
@@ -300,4 +301,40 @@ func TestUnitTests(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestConcurrency(t *testing.T) {
+	servers := []string{"A", "B", "C", "D", "E", "F", "G"}
+	rr := NewRoundRobin()
+	rr.AddServers(servers)
+
+	const Workers = 100
+	const Work = 200
+	var wg sync.WaitGroup
+
+	for worker := 0; worker < Workers; worker++ {
+		wg.Add(1)
+		go func(workerID int, server string) {
+			defer wg.Done()
+
+			for curr := 0; curr < Work; curr++ {
+				rr.GetServer()
+
+				random := curr % 2
+
+				if random == 0 {
+					rr.Dead(server)
+				} else {
+					rr.Alive(server)
+				}
+			}
+
+		}(worker, servers[worker%len(servers)])
+	}
+	wg.Wait()
+
+	if rr.aliveCount < 0 || rr.aliveCount > 7 {
+		t.Fatalf("Alive Server Wanted > 0 || < 7; Got %d", rr.aliveCount)
+	}
+
 }
