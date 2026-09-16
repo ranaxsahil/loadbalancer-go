@@ -333,7 +333,7 @@ func TestConcurrency(t *testing.T) {
 	}
 	wg.Wait()
 
-	if rr.aliveCount < 0 || rr.aliveCount > 7 {
+	if rr.aliveCount < 0 || rr.aliveCount >= len(servers) {
 		t.Fatalf("Alive Server Wanted > 0 || < 7; Got %d", rr.aliveCount)
 	}
 
